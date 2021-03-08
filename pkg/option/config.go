@@ -3201,6 +3201,22 @@ func (c *DaemonConfig) calculateDynamicBPFMapSizes(totalMemory uint64, dynamicSi
 	}
 }
 
+// KubeProxyReplacementIsRunningStrict returns true if Cilium is _effectively_
+// running in KPR strict mode.
+//
+// The extra logic to check that all the individual features are enabled is
+// required to deal with the case when KubeProxyReplacement mode is set to
+// "probe" (as Cilium may or may not be running in strict mode).
+func (c *DaemonConfig) KubeProxyReplacementIsRunningStrict() bool {
+	return c.EnableHostPort &&
+		c.EnableNodePort &&
+		c.EnableExternalIPs &&
+		c.EnableHostReachableServices &&
+		c.EnableHostServicesTCP &&
+		c.EnableHostServicesUDP &&
+		c.EnableSessionAffinity
+}
+
 func sanitizeIntParam(paramName string, paramDefault int) int {
 	intParam := viper.GetInt(paramName)
 	if intParam <= 0 {

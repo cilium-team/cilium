@@ -125,6 +125,25 @@ func getFeedRule(name, args string) []string {
 	return append(argsList, ruleTail...)
 }
 
+// skipPodToPodConntrack returns true if it's possible to install iptables `-j
+// NOTRACK` rules to skip tracking pod to pod traffic.
+//
+// These rules will be installed only when Cilium is running in strict KPR mode
+// (as otherwise conntrack would be required for NAT operations) and in direct
+// routing mode (as in tunneling mode the encapsulated traffic is already
+// skipping netfilter conntrack).
+func skipPodToPodConntrack(ipv6 bool) bool {
+	return !ipv6 && option.Config.EnableIPv4 &&
+		// We can't skip connection tracking when running in AWS ENI
+		// mode as that's required to CONNMARK packets coming from
+		// another node through eth0, and restore the mark on the return
+		// path to force a lookup into the main routing table.
+		option.Config.IPAM != ipamOption.IPAMENI &&
+		option.Config.Tunnel == option.TunnelDisabled &&
+		option.Config.IPv4NativeRoutingCIDR() != nil &&
+		option.Config.KubeProxyReplacementIsRunningStrict()
+}
+
 // KernelHasNetfilter probes whether iptables related modules are present in
 // the kernel and returns true if indeed the case, else false.
 func KernelHasNetfilter() bool {
@@ -711,7 +730,7 @@ func (m *IptablesManager) iptProxyRules(cmd string, proxyPort uint16, ingress bo
 	return nil
 }
 
-func noTrackRules(prog string, cmd string, IP string, port *lb.L4Addr, ingress bool) error {
+func endpointNoTrackRules(prog string, cmd string, IP string, port *lb.L4Addr, ingress bool) error {
 	protocol := strings.ToLower(port.Protocol)
 	p := strconv.FormatUint(uint64(port.Port), 10)
 	if ingress {
@@ -735,7 +754,13 @@ func noTrackRules(prog string, cmd string, IP string, port *lb.L4Addr, ingress b
 	return nil
 }
 
-func InstallNoTrackRules(IP string, port uint16, ipv6 bool) error {
+func InstallEndpointNoTrackRules(IP string, port uint16, ipv6 bool) error {
+	// Do not install per endpoint NOTRACK rules if we are already skipping
+	// conntrack for all pod to pod traffic.
+	if skipPodToPodConntrack(ipv6) {
+		return nil
+	}
+
 	prog := "iptables"
 	ipField := logfields.IPv4
 	if ipv6 {
@@ -744,7 +769,7 @@ func InstallNoTrackRules(IP string, port uint16, ipv6 bool) error {
 	}
 	ports := noTrackPorts(port)
 	for _, p := range ports {
-		if err := noTrackRules(prog, "-A", IP, p, true); err != nil {
+		if err := endpointNoTrackRules(prog, "-A", IP, p, true); err != nil {
 			log.WithFields(logrus.Fields{
 				ipField:            IP,
 				logfields.Port:     p.Port,
@@ -752,7 +777,7 @@ func InstallNoTrackRules(IP string, port uint16, ipv6 bool) error {
 			}).WithError(err).Warn("Unable to install ingress NOTRACK rules")
 			return err
 		}
-		if err := noTrackRules(prog, "-A", IP, p, false); err != nil {
+		if err := endpointNoTrackRules(prog, "-A", IP, p, false); err != nil {
 			log.WithFields(logrus.Fields{
 				ipField:            IP,
 				logfields.Port:     p.Port,
@@ -764,7 +789,7 @@ func InstallNoTrackRules(IP string, port uint16, ipv6 bool) error {
 	return nil
 }
 
-func RemoveNoTrackRules(IP string, port uint16, ipv6 bool) error {
+func RemoveEndpointNoTrackRules(IP string, port uint16, ipv6 bool) error {
 	prog := "iptables"
 	ipField := logfields.IPv4
 	if ipv6 {
@@ -773,7 +798,7 @@ func RemoveNoTrackRules(IP string, port uint16, ipv6 bool) error {
 	}
 	ports := noTrackPorts(port)
 	for _, p := range ports {
-		if err := noTrackRules(prog, "-D", IP, p, true); err != nil {
+		if err := endpointNoTrackRules(prog, "-D", IP, p, true); err != nil {
 			log.WithFields(logrus.Fields{
 				ipField:            IP,
 				logfields.Port:     p.Port,
@@ -781,7 +806,7 @@ func RemoveNoTrackRules(IP string, port uint16, ipv6 bool) error {
 			}).WithError(err).Warn("Unable to remove ingress NOTRACK rules")
 			return err
 		}
-		if err := noTrackRules(prog, "-D", IP, p, false); err != nil {
+		if err := endpointNoTrackRules(prog, "-D", IP, p, false); err != nil {
 			log.WithFields(logrus.Fields{
 				ipField:            IP,
 				logfields.Port:     p.Port,
@@ -1226,6 +1251,14 @@ func (m *IptablesManager) InstallRules(ifName string) error {
 		}
 	}
 
+	if skipPodToPodConntrack(false) {
+		podsCIDR := option.Config.IPv4NativeRoutingCIDR().String()
+
+		if err := m.addNoTrackPodToPodRules("iptables", podsCIDR); err != nil {
+			return fmt.Errorf("cannot install: %s", err)
+		}
+	}
+
 	for _, c := range ciliumChains {
 		// do not install feeder for chains that are set to be disabled
 		skipFeeder := false
@@ -1322,6 +1355,33 @@ func (m *IptablesManager) addCiliumNoTrackXfrmRules() error {
 	if option.Config.EnableIPv4 {
 		return m.ciliumNoTrackXfrmRules("iptables", "-I")
 	}
+	return nil
+}
+
+func (m *IptablesManager) addNoTrackPodToPodRules(prog, podsCIDR string) error {
+	if err := runProg(prog, append(
+		m.waitArgs,
+		"-t", "raw",
+		"-I", ciliumPreRawChain,
+		"-s", podsCIDR,
+		"-d", podsCIDR,
+		"-m", "comment", "--comment", "cilium: NOTRACK for pod to pod traffic",
+		"-j", "NOTRACK"),
+		false); err != nil {
+		return err
+	}
+	if err := runProg(prog, append(
+		m.waitArgs,
+		"-t", "raw",
+		"-I", ciliumOutputRawChain,
+		"-s", podsCIDR,
+		"-d", podsCIDR,
+		"-m", "comment", "--comment", "cilium: NOTRACK for pod to pod traffic",
+		"-j", "NOTRACK"),
+		false); err != nil {
+		return err
+	}
+
 	return nil
 }
 
