@@ -911,7 +911,8 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 	}
 
 	var wgIPv4 net.IP
-	if option.Config.EnableWireguard {
+	// TODO move somewhere
+	if option.Config.EnableWireguard && !newNode.IsLocal() {
 		wgIPv4 = newNode.GetIPByType(addressing.NodeWireguardIP, false)
 		err := n.wgAgent.UpdatePeer(newNode.Name, wgIPv4, newIP4, newNode.WireguardPubKey, newNode.IPv4AllocCIDR.IPNet, newNode.IsLocal())
 		if err != nil {

@@ -115,11 +115,10 @@ func (o *Operator) Resync() error {
 	o.Lock()
 	defer o.Unlock()
 
-	o.restoring = false
 	for nodeName := range o.allocForNodesAfterRestore {
 		ip, err := o.ipAlloc.AllocateNext()
 		if err != nil {
-			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName)
+			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
 		}
 		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
 			o.ipAlloc.Release(ip)
@@ -127,6 +126,8 @@ func (o *Operator) Resync() error {
 		}
 		o.ipByNode[nodeName] = ip
 	}
+
+	o.restoring = false
 
 	return nil
 }
@@ -162,10 +163,16 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 	}
 
 	if !found {
-		ip, err := o.ipAlloc.AllocateNext()
-		if err != nil {
-			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName)
+		var ip net.IP
+		var err error
+		if prevIP, ok := o.ipByNode[nodeName]; ok {
+			o.ipAlloc.Release(prevIP)
 		}
+		ip, err = o.ipAlloc.AllocateNext()
+		if err != nil {
+			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
+		}
+
 		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
 			o.ipAlloc.Release(ip)
 			return err
