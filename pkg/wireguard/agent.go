@@ -48,8 +48,8 @@ type Agent struct {
 	restoredPubKeys  map[string]struct{}
 }
 
-func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
-	key, err := loadOrGeneratePrivKey(privKey)
+func NewAgent(privKeyPath string, wgV4Net *net.IPNet) (*Agent, error) {
+	key, err := loadOrGeneratePrivKey(privKeyPath)
 	if err != nil {
 		return nil, err
 	}
