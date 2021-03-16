@@ -649,10 +649,10 @@ const (
 	// IPSecKeyFileName is the name of the option for ipsec key file
 	IPSecKeyFileName = "ipsec-key-file"
 
-	// TODO docs
+	// EnableWireguard is the name of the option to enable wireguard
 	EnableWireguard = "enable-wireguard"
 
-	// TODO docs
+	// WireguardSubnetV4 is the name of the option to set the wireguard subnet
 	WireguardSubnetV4 = "wireguard-subnet"
 
 	// KVstoreLeaseTTL is the time-to-live for lease in kvstore.

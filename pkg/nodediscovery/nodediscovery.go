@@ -358,17 +358,7 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 		k8sNodeAddresses []nodeTypes.Address
 	)
 
-	addrs := nodeResource.Spec.Addresses
 	nodeResource.Spec.Addresses = []ciliumv2.NodeAddress{}
-
-	// TODO document this hack :~(
-	if option.Config.EnableWireguard {
-		for _, addr := range addrs {
-			if addr.Type == addressing.NodeWireguardIP {
-				nodeResource.Spec.Addresses = append(nodeResource.Spec.Addresses, addr)
-			}
-		}
-	}
 
 	// Tie the CiliumNode custom resource lifecycle to the lifecycle of the
 	// Kubernetes node

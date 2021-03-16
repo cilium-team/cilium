@@ -72,7 +72,7 @@ func NewAgent(privKeyPath string, wgV4Net *net.IPNet) (*Agent, error) {
 	}, nil
 }
 
-// TODO call this
+// Close is called when the agent stops
 func (a *Agent) Close() error {
 	return a.wgClient.Close()
 }

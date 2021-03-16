@@ -1446,6 +1446,10 @@ func runDaemon() {
 		if err != nil {
 			log.WithError(err).Fatal("Failed to initialize wireguard")
 		}
+
+		cleaner.cleanupFuncs.Add(func() {
+			_ = wgAgent.Close()
+		})
 	}
 
 	if k8s.IsEnabled() {

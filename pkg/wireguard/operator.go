@@ -15,6 +15,7 @@
 package wireguard
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -167,18 +168,23 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 	if !found {
 		// No IP was found in CiliumNode, so let's allocate one
 
+		var ip net.IP
+		var err error
 		if prevIP, ok := o.ipByNode[nodeName]; ok {
-			// Previously, the node had an IP assigned to it, so let's release it
-			// first before allocating a new one. This can happen when someone
-			// manually removes a wireguard IP from CiliumNode object.
-			o.ipAlloc.Release(prevIP)
-			delete(o.ipByNode, nodeName)
+			// Previously, the node had an IP assigned to it, so let's reallocate
+			// it. This can happen when someone manually removes the wireguard IP
+			// from CiliumNode object.
+			err = o.ipAlloc.Allocate(prevIP)
+			if err != nil && !errors.Is(err, ipallocator.ErrAllocated) {
+				return fmt.Errorf("failed to re-allocate IP addr for node %s: %w", nodeName, err)
+			}
+		} else {
+			ip, err = o.ipAlloc.AllocateNext()
+			if err != nil {
+				return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
+			}
 		}
 
-		ip, err := o.ipAlloc.AllocateNext()
-		if err != nil {
-			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
-		}
 		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
 			o.ipAlloc.Release(ip)
 			return err
