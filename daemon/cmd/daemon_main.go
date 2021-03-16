@@ -1441,7 +1441,7 @@ func runDaemon() {
 	var wgAgent *wireguard.Agent
 	if option.Config.EnableWireguard {
 		var err error
-		privateKeyPath := filepath.Join(option.Config.StateDir, "wg.priv") // TODO make const
+		privateKeyPath := filepath.Join(option.Config.StateDir, wireguard.PrivKeyFilename)
 		wgAgent, err = wireguard.NewAgent(privateKeyPath, option.Config.WireguardSubnetV4)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to initialize wireguard")

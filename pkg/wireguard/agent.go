@@ -36,6 +36,7 @@ const (
 	listenPort       = 51871
 	IfaceName        = "cilium_wg0"
 	PubKeyAnnotation = "io.cilium.network.wg-pub-key"
+	PrivKeyFilename  = "cilium_wg0.key"
 )
 
 type Agent struct {
