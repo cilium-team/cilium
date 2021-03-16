@@ -20,6 +20,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/loader/metrics"
+	"github.com/cilium/cilium/pkg/wireguard"
 )
 
 type fakeDatapath struct {
@@ -98,6 +99,10 @@ func (m *fakeDatapath) GetProxyPort(name string) uint16 {
 
 func (f *fakeDatapath) Loader() datapath.Loader {
 	return f.loader
+}
+
+func (f *fakeDatapath) WireguardAgent() *wireguard.Agent {
+	return nil
 }
 
 // Loader is an interface to abstract out loading of datapath programs.
