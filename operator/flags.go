@@ -107,6 +107,9 @@ func init() {
 	flags.String(option.WireguardSubnetV4, "172.16.42.0/24", "Wireguard tunnel IPv4 subnet")
 	option.BindEnv(option.WireguardSubnetV4)
 
+	flags.String(option.WireguardSubnetV6, "fdc9:281f:04d7:9ee9::1/64", "Wireguard tunnel IPv6 subnet")
+	option.BindEnv(option.WireguardSubnetV6)
+
 	var defaultIPAM string
 	switch binaryName {
 	case "cilium-operator":

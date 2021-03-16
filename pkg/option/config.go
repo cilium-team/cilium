@@ -652,8 +652,11 @@ const (
 	// EnableWireguard is the name of the option to enable wireguard
 	EnableWireguard = "enable-wireguard"
 
-	// WireguardSubnetV4 is the name of the option to set the wireguard subnet
-	WireguardSubnetV4 = "wireguard-subnet"
+	// WireguardSubnetV4 is the name of the option to set the wireguard v4 subnet
+	WireguardSubnetV4 = "wireguard-subnet-v4"
+
+	// WireguardSubnetV6 is the name of the option to set the wireguard v6 subnet
+	WireguardSubnetV6 = "wireguard-subnet-v6"
 
 	// KVstoreLeaseTTL is the time-to-live for lease in kvstore.
 	KVstoreLeaseTTL = "kvstore-lease-ttl"
@@ -1611,6 +1614,7 @@ type DaemonConfig struct {
 
 	EnableWireguard   bool
 	WireguardSubnetV4 *net.IPNet
+	WireguardSubnetV6 *net.IPNet
 
 	// MonitorQueueSize is the size of the monitor event queue
 	MonitorQueueSize int
@@ -2837,15 +2841,19 @@ func (c *DaemonConfig) Populate() {
 
 	c.KubeProxyReplacementHealthzBindAddr = viper.GetString(KubeProxyReplacementHealthzBindAddr)
 
-	subnet := viper.GetString(WireguardSubnetV4)
-	if subnet == "" {
-		subnet = "172.16.42.0/24"
-	}
-	_, ipnet, err := net.ParseCIDR(subnet)
+	subnetV4 := viper.GetString(WireguardSubnetV4)
+	_, ipv4net, err := net.ParseCIDR(subnetV4)
 	if err != nil {
-		log.WithError(err).Fatalf("Failed to parse wireguard IPv4 subnet: %s", subnet)
+		log.WithError(err).Fatalf("Failed to parse wireguard IPv4 subnet: %s", subnetV4)
 	}
-	c.WireguardSubnetV4 = ipnet
+	c.WireguardSubnetV4 = ipv4net
+
+	subnetV6 := viper.GetString(WireguardSubnetV6)
+	_, ipv6net, err := net.ParseCIDR(subnetV6)
+	if err != nil {
+		log.WithError(err).Fatalf("Failed to parse wireguard IPv6 subnet: %s", subnetV4)
+	}
+	c.WireguardSubnetV6 = ipv6net
 
 	// Hubble options.
 	c.EnableHubble = viper.GetBool(EnableHubble)

@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/cilium/cilium/pkg/option"
+
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/node/addressing"
@@ -35,25 +37,51 @@ type CiliumNodeUpdater interface {
 
 type Operator struct {
 	lock.RWMutex
-	ipAlloc                   *ipallocator.Range
-	restoring                 bool
-	allocForNodesAfterRestore map[string]struct{}
-	ciliumNodeUpdater         CiliumNodeUpdater
-	ipByNode                  map[string]net.IP
+	restoring             bool
+	ciliumNodeUpdater     CiliumNodeUpdater
+	ipv4Alloc             *ipallocator.Range
+	ipv4ByNode            map[string]net.IP
+	ipv4AllocAfterRestore map[string]struct{} // by nodename
+	ipv6Alloc             *ipallocator.Range
+	ipv6ByNode            map[string]net.IP
+	ipv6AllocAfterRestore map[string]struct{} // by nodename
 }
 
-func NewOperator(subnetV4 *net.IPNet, ciliumNodeUpdater CiliumNodeUpdater) (*Operator, error) {
-	alloc, err := ipallocator.NewCIDRRange(subnetV4)
-	if err != nil {
-		return nil, err
+func NewOperator(subnetV4, subnetV6 *net.IPNet, ciliumNodeUpdater CiliumNodeUpdater) (*Operator, error) {
+	var (
+		err                                          error
+		ipv4Alloc, ipv6Alloc                         *ipallocator.Range
+		ipv4ByNode, ipv6ByNode                       map[string]net.IP
+		ipv4AllocAfterRestore, ipv6AllocAfterRestore map[string]struct{}
+	)
+
+	if option.Config.EnableIPv4 {
+		ipv4ByNode = make(map[string]net.IP)
+		ipv4AllocAfterRestore = make(map[string]struct{})
+		ipv4Alloc, err = ipallocator.NewCIDRRange(subnetV4)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if option.Config.EnableIPv6 {
+		ipv6ByNode = make(map[string]net.IP)
+		ipv6AllocAfterRestore = make(map[string]struct{})
+		ipv6Alloc, err = ipallocator.NewCIDRRange(subnetV6)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	m := &Operator{
-		ipAlloc:                   alloc,
-		restoring:                 true,
-		allocForNodesAfterRestore: make(map[string]struct{}),
-		ciliumNodeUpdater:         ciliumNodeUpdater,
-		ipByNode:                  make(map[string]net.IP),
+		restoring:             true,
+		ciliumNodeUpdater:     ciliumNodeUpdater,
+		ipv4Alloc:             ipv4Alloc,
+		ipv4ByNode:            ipv4ByNode,
+		ipv4AllocAfterRestore: ipv4AllocAfterRestore,
+		ipv6Alloc:             ipv6Alloc,
+		ipv6ByNode:            ipv6ByNode,
+		ipv6AllocAfterRestore: ipv6AllocAfterRestore,
 	}
 
 	return m, nil
@@ -63,14 +91,38 @@ func (o *Operator) AddNode(n *v2.CiliumNode) error {
 	o.Lock()
 	defer o.Unlock()
 
-	return o.allocateIP(n)
+	if option.Config.EnableIPv4 {
+		if err := o.allocateIP(n, IPv4); err != nil {
+			return err
+		}
+	}
+
+	if option.Config.EnableIPv6 {
+		if err := o.allocateIP(n, IPv6); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (o *Operator) UpdateNode(n *v2.CiliumNode) error {
 	o.Lock()
 	defer o.Unlock()
 
-	return o.allocateIP(n)
+	if option.Config.EnableIPv4 {
+		if err := o.allocateIP(n, IPv4); err != nil {
+			return err
+		}
+	}
+
+	if option.Config.EnableIPv6 {
+		if err := o.allocateIP(n, IPv6); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (o *Operator) DeleteNode(n *v2.CiliumNode) {
@@ -83,27 +135,44 @@ func (o *Operator) DeleteNode(n *v2.CiliumNode) {
 		log.WithField("nodeName", nodeName).Warn("Received node delete while restoring")
 	}
 
-	found := false
-	var ip net.IP
-	for _, addr := range n.Spec.Addresses {
-		if addr.Type == addressing.NodeWireguardIP {
-			ip = net.ParseIP(addr.IP)
-			if ip.To4() != nil {
-				found = true
-				break
-			}
-		}
+	if option.Config.EnableIPv4 {
+		o.releaseIP(n, nodeName, IPv4)
 	}
+
+	if option.Config.EnableIPv6 {
+		o.releaseIP(n, nodeName, IPv6)
+	}
+}
+
+func (o *Operator) releaseIP(n *v2.CiliumNode, nodeName string, family Family) {
+	var (
+		ipAlloc  *ipallocator.Range
+		ipByNode map[string]net.IP
+	)
+
+	switch family {
+	case IPv4:
+		ipAlloc = o.ipv4Alloc
+		ipByNode = o.ipv4ByNode
+	case IPv6:
+		ipAlloc = o.ipv6Alloc
+		ipByNode = o.ipv6ByNode
+	default:
+		log.Warning("unsupported family")
+		return
+	}
+
+	ip, found := findWireguardIP(n, family)
 
 	if !found {
 		// Maybe cilium-agent has removed the IP addr from CiliumNode, so fallback
 		// to local cache to determine the IP addr.
-		ip, found = o.ipByNode[nodeName]
+		ip, found = ipByNode[nodeName]
 	}
 
 	if found {
-		o.ipAlloc.Release(ip)
-		delete(o.ipByNode, nodeName)
+		ipAlloc.Release(ip)
+		delete(ipByNode, nodeName)
 
 		log.WithFields(logrus.Fields{
 			"nodeName": nodeName,
@@ -116,16 +185,28 @@ func (o *Operator) RestoreFinished() error {
 	o.Lock()
 	defer o.Unlock()
 
-	for nodeName := range o.allocForNodesAfterRestore {
-		ip, err := o.ipAlloc.AllocateNext()
+	for nodeName := range o.ipv4AllocAfterRestore {
+		ip, err := o.ipv4Alloc.AllocateNext()
 		if err != nil {
-			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
+			return fmt.Errorf("failed to allocate IPv4 addr for node %s: %w", nodeName, err)
 		}
 		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
-			o.ipAlloc.Release(ip)
+			o.ipv4Alloc.Release(ip)
 			return err
 		}
-		o.ipByNode[nodeName] = ip
+		o.ipv4ByNode[nodeName] = ip
+	}
+
+	for nodeName := range o.ipv6AllocAfterRestore {
+		ip, err := o.ipv6Alloc.AllocateNext()
+		if err != nil {
+			return fmt.Errorf("failed to allocate IPv6 addr for node %s: %w", nodeName, err)
+		}
+		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
+			o.ipv6Alloc.Release(ip)
+			return err
+		}
+		o.ipv6ByNode[nodeName] = ip
 	}
 
 	o.restoring = false
@@ -133,35 +214,60 @@ func (o *Operator) RestoreFinished() error {
 	return nil
 }
 
+func findWireguardIP(n *v2.CiliumNode, family Family) (net.IP, bool) {
+	var ip net.IP
+	for _, addr := range n.Spec.Addresses {
+		if addr.Type == addressing.NodeWireguardIP {
+			ip = net.ParseIP(addr.IP)
+			if ip != nil {
+				isIPv4 := ip.To4() != nil
+				if (family == IPv4 && isIPv4) || (family == IPv6 && !isIPv4) {
+					return ip, true
+				}
+			}
+		}
+	}
+
+	return nil, false
+}
+
 // allocateIP must be called with *Operator mutex being held.
-func (o *Operator) allocateIP(n *v2.CiliumNode) error {
+func (o *Operator) allocateIP(n *v2.CiliumNode, family Family) error {
+	var (
+		ipAlloc             *ipallocator.Range
+		ipByNode            map[string]net.IP
+		ipAllocAfterRestore map[string]struct{}
+	)
+	switch family {
+	case IPv4:
+		ipAlloc = o.ipv4Alloc
+		ipByNode = o.ipv4ByNode
+		ipAllocAfterRestore = o.ipv4AllocAfterRestore
+	case IPv6:
+		ipAlloc = o.ipv6Alloc
+		ipByNode = o.ipv6ByNode
+		ipAllocAfterRestore = o.ipv6AllocAfterRestore
+	default:
+		return errors.New("unsupported family")
+	}
+
 	nodeName := n.ObjectMeta.Name
 	allocated := false
 	defer func() {
 		if allocated {
 			log.WithFields(logrus.Fields{
 				"nodeName": nodeName,
-				"ip":       o.ipByNode[nodeName],
+				"ip":       ipByNode[nodeName],
 			}).Info("Allocated wireguard IP")
 		}
 	}()
 
-	found := false
-	var ip net.IP
-	for _, addr := range n.Spec.Addresses {
-		if addr.Type == addressing.NodeWireguardIP {
-			ip = net.ParseIP(addr.IP)
-			if ip.To4() != nil {
-				found = true
-				break
-			}
-		}
-	}
+	ip, found := findWireguardIP(n, family)
 
 	if o.restoring && !found {
 		// We will allocate an IP once we have learned about all previously
 		// allocated IPs (after sync with k8s has finished).
-		o.allocForNodesAfterRestore[nodeName] = struct{}{}
+		ipAllocAfterRestore[nodeName] = struct{}{}
 		return nil
 	}
 
@@ -170,26 +276,26 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 
 		var ip net.IP
 		var err error
-		if prevIP, ok := o.ipByNode[nodeName]; ok {
+		if prevIP, ok := ipByNode[nodeName]; ok {
 			// Previously, the node had an IP assigned to it, so let's reallocate
 			// it. This can happen when someone manually removes the wireguard IP
 			// from CiliumNode object.
-			err = o.ipAlloc.Allocate(prevIP)
+			err = ipAlloc.Allocate(prevIP)
 			if err != nil && !errors.Is(err, ipallocator.ErrAllocated) {
 				return fmt.Errorf("failed to re-allocate IP addr for node %s: %w", nodeName, err)
 			}
 		} else {
-			ip, err = o.ipAlloc.AllocateNext()
+			ip, err = ipAlloc.AllocateNext()
 			if err != nil {
 				return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
 			}
 		}
 
 		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
-			o.ipAlloc.Release(ip)
+			ipAlloc.Release(ip)
 			return err
 		}
-		o.ipByNode[nodeName] = ip
+		ipByNode[nodeName] = ip
 		allocated = true
 
 		return nil
@@ -197,25 +303,25 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 
 	// An IP was found in CiliumNode. This could happen in both states
 	// (restoring and after restoring).
-	if prevIP, ok := o.ipByNode[nodeName]; ok {
+	if prevIP, ok := ipByNode[nodeName]; ok {
 		if !prevIP.Equal(ip) {
 			// The IP we previously learnt does not match. Release it first before
 			// we reallocate the IP from CiliumNode
-			o.ipAlloc.Release(prevIP)
-			delete(o.ipByNode, nodeName)
+			ipAlloc.Release(prevIP)
+			delete(ipByNode, nodeName)
 
-			if err := o.ipAlloc.Allocate(ip); err != nil {
+			if err := ipAlloc.Allocate(ip); err != nil {
 				return fmt.Errorf("failed to re-allocate IP addr %s for node %s: %w", ip, nodeName, err)
 			}
-			o.ipByNode[nodeName] = ip
+			ipByNode[nodeName] = ip
 		}
 	} else {
 		// We don't know about this IP, let's allocate it (can happen during
 		// restore).
-		if err := o.ipAlloc.Allocate(ip); err != nil {
+		if err := ipAlloc.Allocate(ip); err != nil {
 			return err
 		}
-		o.ipByNode[nodeName] = ip
+		ipByNode[nodeName] = ip
 	}
 
 	return nil

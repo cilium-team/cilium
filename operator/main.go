@@ -367,7 +367,10 @@ func onOperatorStartLeading(ctx context.Context) {
 	)
 
 	if option.Config.EnableWireguard {
-		wgOperator, err = wireguard.NewOperator(option.Config.WireguardSubnetV4, &ciliumNodeUpdateImplementation{})
+		wgOperator, err = wireguard.NewOperator(
+			option.Config.WireguardSubnetV4,
+			option.Config.WireguardSubnetV6,
+			&ciliumNodeUpdateImplementation{})
 	}
 
 	log.WithField(logfields.Mode, option.Config.IPAM).Info("Initializing IPAM")
