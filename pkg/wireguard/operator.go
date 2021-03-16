@@ -111,7 +111,7 @@ func (o *Operator) DeleteNode(n *v2.CiliumNode) {
 	}
 }
 
-func (o *Operator) Resync() error {
+func (o *Operator) RestoreFinished() error {
 	o.Lock()
 	defer o.Unlock()
 
@@ -158,21 +158,27 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 	}
 
 	if o.restoring && !found {
+		// We will allocate an IP once we have learned about all previously
+		// allocated IPs (after sync with k8s has finished).
 		o.allocForNodesAfterRestore[nodeName] = struct{}{}
 		return nil
 	}
 
 	if !found {
-		var ip net.IP
-		var err error
+		// No IP was found in CiliumNode, so let's allocate one
+
 		if prevIP, ok := o.ipByNode[nodeName]; ok {
+			// Previously, the node had an IP assigned to it, so let's release it
+			// first before allocating a new one. This can happen when someone
+			// manually removes a wireguard IP from CiliumNode object.
 			o.ipAlloc.Release(prevIP)
+			delete(o.ipByNode, nodeName)
 		}
-		ip, err = o.ipAlloc.AllocateNext()
+
+		ip, err := o.ipAlloc.AllocateNext()
 		if err != nil {
 			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName, err)
 		}
-
 		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
 			o.ipAlloc.Release(ip)
 			return err
@@ -183,20 +189,23 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 		return nil
 	}
 
+	// An IP was found in CiliumNode. This could happen in both states
+	// (restoring and after restoring).
 	if prevIP, ok := o.ipByNode[nodeName]; ok {
 		if !prevIP.Equal(ip) {
-			// Release prev IP and reallocate the new IP
+			// The IP we previously learnt does not match. Release it first before
+			// we reallocate the IP from CiliumNode
 			o.ipAlloc.Release(prevIP)
 			delete(o.ipByNode, nodeName)
 
 			if err := o.ipAlloc.Allocate(ip); err != nil {
 				return fmt.Errorf("failed to re-allocate IP addr %s for node %s: %w", ip, nodeName, err)
 			}
-
 			o.ipByNode[nodeName] = ip
-			allocated = true
 		}
 	} else {
+		// We don't know about this IP, let's allocate it (can happen during
+		// restore).
 		if err := o.ipAlloc.Allocate(ip); err != nil {
 			return err
 		}

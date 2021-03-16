@@ -415,7 +415,7 @@ func onOperatorStartLeading(ctx context.Context) {
 
 	if wgOperator != nil {
 		<-k8sCiliumNodesCacheSynced
-		if err := wgOperator.Resync(); err != nil {
+		if err := wgOperator.RestoreFinished(); err != nil {
 			log.WithError(err).Warn("Failed to allocate wireguard IP addrs")
 		}
 	}
