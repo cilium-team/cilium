@@ -143,7 +143,7 @@ func (ds *DaemonSuite) SetUpTest(c *C) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d, _, err := NewDaemon(ctx, cancel,
 		WithCustomEndpointManager(&dummyEpSyncher{}),
-		fakedatapath.NewDatapath(), nil)
+		fakedatapath.NewDatapath())
 	c.Assert(err, IsNil)
 	ds.d = d
 

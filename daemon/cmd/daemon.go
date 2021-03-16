@@ -86,7 +86,6 @@ import (
 	"github.com/cilium/cilium/pkg/sockops"
 	"github.com/cilium/cilium/pkg/status"
 	"github.com/cilium/cilium/pkg/trigger"
-	"github.com/cilium/cilium/pkg/wireguard"
 	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
 
 	"github.com/sirupsen/logrus"
@@ -254,9 +253,7 @@ func createPrefixLengthCounter() *counter.PrefixLengthCounter {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointmanager.EndpointManager, dp datapath.Datapath, wgAgent *wireguard.Agent) (*Daemon, *endpointRestoreState, error) {
-	// TODO don't pass wgAgent ^^
-
+func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointmanager.EndpointManager, dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
 	// Pass the cancel to our signal handler directly so that it's canceled
 	// before we run the cleanup functions (see `cleanup.go` for implementation).
 	cleaner.SetCancelFunc(cancel)
@@ -526,7 +523,7 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 		bootstrapStats.k8sInit.End(true)
 	}
 
-	if option.Config.EnableWireguard {
+	if wgAgent := dp.WireguardAgent(); wgAgent != nil {
 		if err := wgAgent.Init(); err != nil {
 			log.WithError(err).Fatal("Failed to initialize wireguard agent")
 		}

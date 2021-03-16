@@ -76,6 +76,7 @@ func (a *Agent) Close() error {
 	return a.wgClient.Close()
 }
 
+// Init is called after we have obtained a local Wireguard IP
 func (a *Agent) Init() error {
 	link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: IfaceName}}
 	err := netlink.LinkAdd(link)

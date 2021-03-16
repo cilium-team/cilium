@@ -39,6 +39,7 @@ type linuxDatapath struct {
 	nodeAddressing datapath.NodeAddressing
 	config         DatapathConfiguration
 	loader         *loader.Loader
+	wgAgent        *wireguard.Agent
 }
 
 // NewDatapath creates a new Linux datapath
@@ -49,6 +50,7 @@ func NewDatapath(cfg DatapathConfiguration, ruleManager datapath.IptablesManager
 		nodeAddressing:  NewNodeAddressing(),
 		config:          cfg,
 		loader:          loader.NewLoader(canDisableDwarfRelocations),
+		wgAgent:         wgAgent,
 	}
 
 	dp.node = NewNodeHandler(cfg, dp.nodeAddressing, wgAgent)
@@ -75,4 +77,8 @@ func (l *linuxDatapath) LocalNodeAddressing() datapath.NodeAddressing {
 
 func (l *linuxDatapath) Loader() datapath.Loader {
 	return l.loader
+}
+
+func (l *linuxDatapath) WireguardAgent() *wireguard.Agent {
+	return l.wgAgent
 }
