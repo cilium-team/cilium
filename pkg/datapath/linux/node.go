@@ -910,16 +910,6 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 		n.encryptNode(newNode)
 	}
 
-	var wgIPv4 net.IP
-	// TODO move somewhere
-	if option.Config.EnableWireguard && !newNode.IsLocal() {
-		wgIPv4 = newNode.GetIPByType(addressing.NodeWireguardIP, false)
-		err := n.wgAgent.UpdatePeer(newNode.Name, wgIPv4, newIP4, newNode.WireguardPubKey, newNode.IPv4AllocCIDR.IPNet, newNode.IsLocal())
-		if err != nil {
-			return err // TODO who checks this?
-		}
-	}
-
 	if newNode.IsLocal() {
 		isLocalNode = true
 		if n.nodeConfig.EnableLocalNodeRoute {
@@ -933,7 +923,16 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 		return nil
 	}
 
-	// TODO move it here
+	var wgIPv4 net.IP
+	if option.Config.EnableWireguard {
+		wgIPv4 = newNode.GetIPByType(addressing.NodeWireguardIP, false)
+		err := n.wgAgent.UpdatePeer(newNode.Name, wgIPv4, newIP4, newNode.WireguardPubKey, newNode.IPv4AllocCIDR.IPNet)
+		if err != nil {
+			log.WithError(err).
+				WithField(logfields.NodeName, newNode.Name).
+				Warning("Failed to update wireguard configuration for peer")
+		}
+	}
 
 	if n.nodeConfig.EnableAutoDirectRouting {
 		nextHopIPv4 := newIP4

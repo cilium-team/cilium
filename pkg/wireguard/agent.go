@@ -153,13 +153,9 @@ func (a *Agent) RestoreFinished() error {
 	return nil
 }
 
-func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex string, podCIDRv4 *net.IPNet, isLocal bool) error {
+func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex string, podCIDRv4 *net.IPNet) error {
 	a.Lock()
 	defer a.Unlock()
-
-	if isLocal {
-		return nil
-	}
 
 	// Handle pubKey change
 	if prevPubKeyHex, found := a.pubKeyByNodeName[nodeName]; found && prevPubKeyHex != pubKeyHex {
