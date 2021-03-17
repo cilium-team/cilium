@@ -335,6 +335,14 @@ func (o *Operator) setCiliumNodeIP(nodeName string, ip net.IP) error {
 			return err
 		}
 
+		for _, addr := range node.Spec.Addresses {
+			if addr.Type == addressing.NodeWireguardIP {
+				if foundIP := net.ParseIP(addr.IP); foundIP != nil && foundIP.Equal(ip) {
+					return nil
+				}
+			}
+		}
+
 		node.Spec.Addresses = append(node.Spec.Addresses, v2.NodeAddress{Type: addressing.NodeWireguardIP, IP: ip.String()})
 		_, err = o.ciliumNodeUpdater.Update(nil, node)
 		return err
