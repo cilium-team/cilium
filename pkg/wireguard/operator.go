@@ -277,6 +277,7 @@ func (o *Operator) allocateIP(n *v2.CiliumNode, family Family) error {
 		var ip net.IP
 		var err error
 		if prevIP, ok := ipByNode[nodeName]; ok {
+			ip = prevIP
 			// Previously, the node had an IP assigned to it, so let's reallocate
 			// it. This can happen when someone manually removes the wireguard IP
 			// from CiliumNode object.

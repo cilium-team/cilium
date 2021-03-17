@@ -24,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/node"
+	"github.com/cilium/cilium/pkg/option"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
@@ -45,11 +46,12 @@ type Agent struct {
 	listenPort       int
 	privKey          wgtypes.Key
 	wireguardV4CIDR  *net.IPNet
+	wireguardV6CIDR  *net.IPNet
 	pubKeyByNodeName map[string]string // nodeName => pubKey
 	restoredPubKeys  map[string]struct{}
 }
 
-func NewAgent(privKeyPath string, wgV4Net *net.IPNet) (*Agent, error) {
+func NewAgent(privKeyPath string, wgV4Net, wgV6Net *net.IPNet) (*Agent, error) {
 	key, err := loadOrGeneratePrivKey(privKeyPath)
 	if err != nil {
 		return nil, err
@@ -66,6 +68,7 @@ func NewAgent(privKeyPath string, wgV4Net *net.IPNet) (*Agent, error) {
 		wgClient:         wgClient,
 		privKey:          key,
 		wireguardV4CIDR:  wgV4Net,
+		wireguardV6CIDR:  wgV6Net,
 		listenPort:       listenPort,
 		pubKeyByNodeName: map[string]string{},
 		restoredPubKeys:  map[string]struct{}{},
@@ -85,27 +88,43 @@ func (a *Agent) Init() error {
 		return err
 	}
 
-	ip := &net.IPNet{
-		IP:   node.GetWireguardIPv4(),
-		Mask: a.wireguardV4CIDR.Mask,
+	type param struct {
+		ip     *net.IPNet
+		family int
 	}
-
-	// Removes stale IP addresses from wg device
-	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
-	if err != nil {
-		return err
+	params := []param{}
+	if option.Config.EnableIPv4 {
+		ip := &net.IPNet{
+			IP:   node.GetWireguardIPv4(),
+			Mask: a.wireguardV4CIDR.Mask,
+		}
+		params = append(params, param{ip: ip, family: netlink.FAMILY_V4})
 	}
-	for _, addr := range addrs {
-		if !cidr.NewCIDR(addr.IPNet).Equal(cidr.NewCIDR(ip)) {
-			if err := netlink.AddrDel(link, &addr); err != nil {
-				return fmt.Errorf("failed to remove stale wg ip: %w", err)
+	if option.Config.EnableIPv6 {
+		ip := &net.IPNet{
+			IP:   node.GetWireguardIPv6(),
+			Mask: a.wireguardV6CIDR.Mask,
+		}
+		params = append(params, param{ip: ip, family: netlink.FAMILY_V6})
+	}
+	for _, p := range params {
+		// Removes stale IP addresses from wg device
+		addrs, err := netlink.AddrList(link, p.family)
+		if err != nil {
+			return err
+		}
+		for _, addr := range addrs {
+			if !cidr.NewCIDR(addr.IPNet).Equal(cidr.NewCIDR(p.ip)) {
+				if err := netlink.AddrDel(link, &addr); err != nil {
+					return fmt.Errorf("failed to remove stale wg ip: %w", err)
+				}
 			}
 		}
-	}
 
-	err = netlink.AddrAdd(link, &netlink.Addr{IPNet: ip})
-	if err != nil && !errors.Is(err, unix.EEXIST) {
-		return err
+		err = netlink.AddrAdd(link, &netlink.Addr{IPNet: p.ip})
+		if err != nil && !errors.Is(err, unix.EEXIST) {
+			return err
+		}
 	}
 
 	cfg := &wgtypes.Config{
@@ -154,7 +173,10 @@ func (a *Agent) RestoreFinished() error {
 	return nil
 }
 
-func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex string, podCIDRv4 *net.IPNet) error {
+func (a *Agent) UpdatePeer(nodeName, pubKeyHex string,
+	wgIPv4, nodeIPv4 net.IP, podCIDRv4 *net.IPNet,
+	wgIPv6, nodeIPv6 net.IP, podCIDRv6 *net.IPNet) error {
+
 	a.Lock()
 	defer a.Unlock()
 
@@ -169,10 +191,14 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 	}
 
 	log.WithFields(logrus.Fields{
-		"nodeName": nodeName,
-		"nodeIP4":  nodeIPv4,
-		"pubKey":   pubKeyHex,
-		"podCIDR":  podCIDRv4,
+		"nodeName":  nodeName,
+		"pubKey":    pubKeyHex,
+		"nodeIPv4":  nodeIPv4,
+		"podCIDRv4": podCIDRv4,
+		"wgIPv4":    wgIPv4,
+		"nodeIPv6":  nodeIPv6,
+		"podCIDRv6": podCIDRv6,
+		"wgIPv6":    wgIPv6,
 	}).Info("Adding peer")
 
 	pubKey, err := wgtypes.ParseKey(pubKeyHex)
@@ -180,18 +206,38 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 		return err
 	}
 
-	var peerIPNet net.IPNet
-	peerIPNet.IP = wgIPv4
-	peerIPNet.Mask = net.IPv4Mask(255, 255, 255, 255)
+	allowedIPs := []net.IPNet{}
 
-	epAddr, err := net.ResolveUDPAddr("udp", nodeIPv4.String()+":"+strconv.Itoa(listenPort))
-	if err != nil {
-		return err
+	if option.Config.EnableIPv4 {
+		var peerIPNet net.IPNet
+		peerIPNet.IP = wgIPv4
+		peerIPNet.Mask = net.IPv4Mask(255, 255, 255, 255)
+
+		allowedIPs = append(allowedIPs, peerIPNet)
+		if podCIDRv4 != nil {
+			allowedIPs = append(allowedIPs, *podCIDRv4)
+		}
+	}
+	if option.Config.EnableIPv6 {
+		var peerIPNet net.IPNet
+		peerIPNet.IP = wgIPv6
+		peerIPNet.Mask = net.CIDRMask(128, 128)
+
+		allowedIPs = append(allowedIPs, peerIPNet)
+		if podCIDRv6 != nil {
+			allowedIPs = append(allowedIPs, *podCIDRv6)
+		}
 	}
 
-	allowedIPs := []net.IPNet{peerIPNet}
-	if podCIDRv4 != nil {
-		allowedIPs = append(allowedIPs, *podCIDRv4)
+	ep := ""
+	if option.Config.EnableIPv4 {
+		ep = net.JoinHostPort(nodeIPv4.String(), strconv.Itoa(listenPort))
+	} else if option.Config.EnableIPv6 {
+		ep = net.JoinHostPort(nodeIPv6.String(), strconv.Itoa(listenPort))
+	}
+	epAddr, err := net.ResolveUDPAddr("udp", ep)
+	if err != nil {
+		return err
 	}
 
 	peerConfig := wgtypes.PeerConfig{

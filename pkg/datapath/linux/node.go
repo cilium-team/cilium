@@ -272,6 +272,7 @@ func (n *linuxNodeHandler) updateDirectRoute(oldCIDR, newCIDR *cidr.CIDR, oldIP,
 	// Node allocation CIDR has changed
 	case oldCIDR != nil && newCIDR != nil && !oldCIDR.Equal(newCIDR):
 		n.deleteDirectRoute(oldCIDR, oldIP)
+		// TODO(brb)
 		//if option.Config.EnableWireguard {
 		//	n.deleteDirectRoute(oldCIDR, newIP) // newIP is wireguard IP
 		//}
@@ -923,11 +924,19 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 		return nil
 	}
 
-	var wgIPv4 net.IP
+	var wgIPv4, wgIPv6 net.IP
 	if option.Config.EnableWireguard {
+		var podCIDRv4, podCIDRv6 *net.IPNet
 		wgIPv4 = newNode.GetIPByType(addressing.NodeWireguardIP, false)
-		err := n.wgAgent.UpdatePeer(newNode.Name, wgIPv4, newIP4, newNode.WireguardPubKey, newNode.IPv4AllocCIDR.IPNet)
-		if err != nil {
+		wgIPv6 = newNode.GetIPByType(addressing.NodeWireguardIP, true)
+		if newNode.IPv4AllocCIDR != nil {
+			podCIDRv4 = newNode.IPv4AllocCIDR.IPNet
+		}
+		if newNode.IPv6AllocCIDR != nil {
+			podCIDRv6 = newNode.IPv6AllocCIDR.IPNet
+		}
+		if err := n.wgAgent.UpdatePeer(newNode.Name, newNode.WireguardPubKey,
+			wgIPv4, newIP4, podCIDRv4, wgIPv6, newIP6, podCIDRv6); err != nil {
 			log.WithError(err).
 				WithField(logfields.NodeName, newNode.Name).
 				Warning("Failed to update wireguard configuration for peer")
@@ -948,6 +957,8 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 				oldNextHopIPv4 = oldWgIPv4
 			}
 		}
+
+		// TODO brb
 
 		n.updateDirectRoute(oldIP4Cidr, newNode.IPv4AllocCIDR, oldNextHopIPv4, nextHopIPv4, firstAddition, n.nodeConfig.EnableIPv4)
 		n.updateDirectRoute(oldIP6Cidr, newNode.IPv6AllocCIDR, oldIP6, newIP6, firstAddition, n.nodeConfig.EnableIPv6)

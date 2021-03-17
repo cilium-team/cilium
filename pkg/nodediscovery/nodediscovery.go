@@ -231,6 +231,12 @@ func (n *NodeDiscovery) StartDiscovery(nodeName string) {
 			IP:   ip,
 		})
 	}
+	if ip := node.GetWireguardIPv6(); ip != nil {
+		n.LocalNode.IPAddresses = append(n.LocalNode.IPAddresses, nodeTypes.Address{
+			Type: addressing.NodeWireguardIP,
+			IP:   ip,
+		})
+	}
 
 	go func() {
 		log.WithFields(

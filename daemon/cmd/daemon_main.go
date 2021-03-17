@@ -394,6 +394,12 @@ func init() {
 	flags.Bool(option.EnableWireguard, false, "Enable wireguard")
 	option.BindEnv(option.EnableWireguard)
 
+	flags.String(option.WireguardSubnetV4, "172.16.42.0/24", "Wireguard tunnel IPv4 subnet")
+	option.BindEnv(option.WireguardSubnetV4)
+
+	flags.String(option.WireguardSubnetV6, "fdc9:281f:04d7:9ee9::1/64", "Wireguard tunnel IPv6 subnet")
+	option.BindEnv(option.WireguardSubnetV6)
+
 	flags.Bool(option.ForceLocalPolicyEvalAtSource, defaults.ForceLocalPolicyEvalAtSource, "Force policy evaluation of all local communication at the source endpoint")
 	option.BindEnv(option.ForceLocalPolicyEvalAtSource)
 
@@ -1442,7 +1448,8 @@ func runDaemon() {
 	if option.Config.EnableWireguard {
 		var err error
 		privateKeyPath := filepath.Join(option.Config.StateDir, wireguard.PrivKeyFilename)
-		wgAgent, err = wireguard.NewAgent(privateKeyPath, option.Config.WireguardSubnetV4)
+		wgAgent, err = wireguard.NewAgent(privateKeyPath,
+			option.Config.WireguardSubnetV4, option.Config.WireguardSubnetV6)
 		if err != nil {
 			log.WithError(err).Fatal("Failed to initialize wireguard")
 		}

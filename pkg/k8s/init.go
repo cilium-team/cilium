@@ -124,8 +124,15 @@ func retrieveNodeInformation(nodeName string) (*nodeTypes.Node, error) {
 	}
 
 	if option.Config.EnableWireguard {
-		if ip := n.GetIPByType(addressing.NodeWireguardIP, false); ip == nil {
-			return nil, fmt.Errorf("wireguard IPv4 not available")
+		if option.Config.EnableIPv4 {
+			if ip := n.GetIPByType(addressing.NodeWireguardIP, false); ip == nil {
+				return nil, fmt.Errorf("wireguard IPv4 not available")
+			}
+		}
+		if option.Config.EnableIPv6 {
+			if ip := n.GetIPByType(addressing.NodeWireguardIP, true); ip == nil {
+				return nil, fmt.Errorf("wireguard IPv6 not available")
+			}
 		}
 	}
 
@@ -257,6 +264,7 @@ func WaitForNodeInformation() error {
 		}
 
 		node.SetWireguardIPv4(n.GetIPByType(addressing.NodeWireguardIP, false))
+		node.SetWireguardIPv6(n.GetIPByType(addressing.NodeWireguardIP, true))
 
 		node.SetLabels(n.Labels)
 

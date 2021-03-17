@@ -59,6 +59,7 @@ var (
 	ipsecKeyIdentity uint8
 
 	wireguardIPv4   net.IP
+	wireguardIPv6   net.IP
 	wireguardPubKey string
 )
 
@@ -575,6 +576,14 @@ func SetWireguardIPv4(ip net.IP) {
 
 func GetWireguardIPv4() net.IP {
 	return wireguardIPv4
+}
+
+func SetWireguardIPv6(ip net.IP) {
+	wireguardIPv6 = ip
+}
+
+func GetWireguardIPv6() net.IP {
+	return wireguardIPv6
 }
 
 func SetWireguardPubKey(key string) {
