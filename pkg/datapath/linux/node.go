@@ -950,18 +950,27 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 		if oldNode != nil {
 			oldWgIPv4 = oldNode.GetIPByType(addressing.NodeWireguardIP, false)
 		}
-
 		if option.Config.EnableWireguard && wgIPv4 != nil && !isLocalNode {
 			nextHopIPv4 = wgIPv4
 			if oldWgIPv4 != nil {
 				oldNextHopIPv4 = oldWgIPv4
 			}
 		}
-
-		// TODO brb
+		nextHopIPv6 := newIP6
+		oldNextHopIPv6 := oldIP6
+		var oldWgIPv6 net.IP
+		if oldNode != nil {
+			oldWgIPv6 = oldNode.GetIPByType(addressing.NodeWireguardIP, true)
+		}
+		if option.Config.EnableWireguard && wgIPv6 != nil && !isLocalNode {
+			nextHopIPv6 = wgIPv6
+			if oldWgIPv6 != nil {
+				oldNextHopIPv6 = oldWgIPv6
+			}
+		}
 
 		n.updateDirectRoute(oldIP4Cidr, newNode.IPv4AllocCIDR, oldNextHopIPv4, nextHopIPv4, firstAddition, n.nodeConfig.EnableIPv4)
-		n.updateDirectRoute(oldIP6Cidr, newNode.IPv6AllocCIDR, oldIP6, newIP6, firstAddition, n.nodeConfig.EnableIPv6)
+		n.updateDirectRoute(oldIP6Cidr, newNode.IPv6AllocCIDR, oldNextHopIPv6, nextHopIPv6, firstAddition, n.nodeConfig.EnableIPv6)
 		return nil
 	}
 
