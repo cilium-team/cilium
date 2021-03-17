@@ -328,6 +328,7 @@ data:
   tunnel: "disabled"
   enable-endpoint-routes: "true"
   enable-local-node-route: "false"
+  install-no-conntrack-iptables-rules: "false"
 {{- else }}
   tunnel: {{ .Values.tunnel }}
 {{- end }}
@@ -335,6 +336,7 @@ data:
 {{- if .Values.eni.enabled }}
   enable-endpoint-routes: "true"
   auto-create-cilium-node-resource: "true"
+  install-no-conntrack-iptables-rules: "false"
 {{- if .Values.eni.updateEC2AdapterLimitViaAPI }}
   update-ec2-adapter-limit-via-api: "true"
   # The below value is deprecated and will be removed in a future release, see https://github.com/cilium/cilium/issues/12396
@@ -353,6 +355,7 @@ data:
   enable-endpoint-routes: "true"
   auto-create-cilium-node-resource: "true"
   enable-local-node-route: "false"
+  install-no-conntrack-iptables-rules: "false"
 {{- if .Values.azure.userAssignedIdentityID }}
   azure-user-assigned-identity-id: {{ .Values.azure.userAssignedIdentityID | quote }}
 {{- end }}

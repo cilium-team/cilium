@@ -366,6 +366,11 @@ New Options
   and has the same desired effect as ``masquerade`` option.
 * ``cni.exclusive``: Use to toggle Cilium installing itself as the only available CNI
   plugin on all nodes.
+* ``install-no-conntrack-iptables-rules``: This option, by default set to true,
+  can be used to control if Cilium should install some extra Iptables rules to
+  skip doing netfilter connection tracking on all pod to pod traffic. Disabling
+  connection tracking is only possible when Cilium is running in direct routing
+  mode and in a kube-proxy free configuration.
 
 Removed Options
 ~~~~~~~~~~~~~~~

@@ -139,6 +139,7 @@ func skipPodToPodConntrack(ipv6 bool) bool {
 		// another node through eth0, and restore the mark on the return
 		// path to force a lookup into the main routing table.
 		option.Config.IPAM != ipamOption.IPAMENI &&
+		option.Config.InstallNoConntrackIptRules &&
 		option.Config.Tunnel == option.TunnelDisabled &&
 		option.Config.IPv4NativeRoutingCIDR() != nil &&
 		option.Config.KubeProxyReplacementIsRunningStrict()

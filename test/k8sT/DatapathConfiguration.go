@@ -636,8 +636,9 @@ var _ = Describe("K8sDatapathConfig", func() {
 				"hostFirewall": "true",
 				// We need the default GKE config. except for per-endpoint
 				// routes (incompatible with host firewall for now).
-				"gke.enabled": "false",
-				"tunnel":      "disabled",
+				"gke.enabled":                     "false",
+				"tunnel":                          "disabled",
+				"installNoConntrackIptablesRules": "false",
 			}, DeployCiliumOptionsAndDNS)
 			Expect(testPodConnectivityAcrossNodes(kubectl)).Should(BeTrue(), "Connectivity test between nodes failed")
 		})
@@ -660,6 +661,7 @@ var _ = Describe("K8sDatapathConfig", func() {
 			// the host firewall.
 			if helpers.RunsOnGKE() {
 				options["gke.enabled"] = "false"
+				options["installNoConntrackIptablesRules"] = "false"
 			} else {
 				options["autoDirectNodeRoutes"] = "true"
 			}

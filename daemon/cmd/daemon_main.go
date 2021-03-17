@@ -925,6 +925,9 @@ func init() {
 	flags.Bool(option.EnableBPFBypassFIBLookup, defaults.EnableBPFBypassFIBLookup, "Enable FIB lookup bypass optimization for nodeport reverse NAT handling")
 	option.BindEnv(option.EnableBPFBypassFIBLookup)
 
+	flags.Bool(option.InstallNoConntrackIptRules, defaults.InstallNoConntrackIptRules, "Install Iptables rules to skip netfilter connection tracking on all pod to pod traffic. This option is only effective when Cilium is running in direct routing and strict KPR mode.")
+	option.BindEnv(option.InstallNoConntrackIptRules)
+
 	viper.BindPFlags(flags)
 
 	CustomCommandHelpFormat(RootCmd, option.HelpFlagSections)
