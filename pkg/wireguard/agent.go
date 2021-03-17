@@ -209,21 +209,23 @@ func (a *Agent) UpdatePeer(nodeName, pubKeyHex string,
 	allowedIPs := []net.IPNet{}
 
 	if option.Config.EnableIPv4 {
-		var peerIPNet net.IPNet
-		peerIPNet.IP = wgIPv4
-		peerIPNet.Mask = net.IPv4Mask(255, 255, 255, 255)
-
-		allowedIPs = append(allowedIPs, peerIPNet)
+		if wgIPv4 != nil {
+			var peerIPNet net.IPNet
+			peerIPNet.IP = wgIPv4
+			peerIPNet.Mask = net.IPv4Mask(255, 255, 255, 255)
+			allowedIPs = append(allowedIPs, peerIPNet)
+		}
 		if podCIDRv4 != nil {
 			allowedIPs = append(allowedIPs, *podCIDRv4)
 		}
 	}
 	if option.Config.EnableIPv6 {
-		var peerIPNet net.IPNet
-		peerIPNet.IP = wgIPv6
-		peerIPNet.Mask = net.CIDRMask(128, 128)
-
-		allowedIPs = append(allowedIPs, peerIPNet)
+		if wgIPv6 != nil {
+			var peerIPNet net.IPNet
+			peerIPNet.IP = wgIPv6
+			peerIPNet.Mask = net.CIDRMask(128, 128)
+			allowedIPs = append(allowedIPs, peerIPNet)
+		}
 		if podCIDRv6 != nil {
 			allowedIPs = append(allowedIPs, *podCIDRv6)
 		}
